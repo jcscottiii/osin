@@ -4,6 +4,10 @@ OSIN
 Golang OAuth2 server library
 ----------------------------
 
+Important Note:
+----------------------------
+### This is a fork of RangelReale's oauth library with patches from other forks.
+
 OSIN is an OAuth2 server library for the Go language, as specified at
 http://tools.ietf.org/html/rfc6749 and http://tools.ietf.org/html/draft-ietf-oauth-v2-10.
 
