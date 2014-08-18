@@ -22,9 +22,9 @@ const (
 type AccessRequest struct {
 	Type          AccessRequestType
 	Code          string
-	Client        Client
-	AuthorizeData *AuthorizeData
-	AccessData    *AccessData
+	Id            string
+	AuthorizeDataCode string
+	PreviousAccessToken, PreviousRefreshToken string
 	RedirectUri   string
 	Scope         string
 	Username      string
@@ -48,13 +48,13 @@ type AccessRequest struct {
 // AccessData represents an access grant (tokens, expiration, client, etc)
 type AccessData struct {
 	// Client information
-	Client Client
+	Id string
 
 	// Authorize data, for authorization code
-	AuthorizeData *AuthorizeData
+	AuthorizeDataCode string
 
 	// Previous access data, for refresh token
-	AccessData *AccessData
+	PreviousAccessToken, PreviousRefreshToken string
 
 	// Access token
 	AccessToken string
@@ -158,59 +158,63 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 	}
 
 	// must have a valid client
-	if ret.Client = getClient(auth, w.Storage, w, r); ret.Client == nil {
+	var client Client
+	if client = getClient(auth, w.Storage, w, r); client == nil {
 		return nil
 	}
 
 	// must be a valid authorization code
 	var err error
-	ret.AuthorizeData, err = w.Storage.LoadAuthorize(ret.Code, r)
+	var authorizeData *AuthorizeData
+	authorizeData, err = w.Storage.LoadAuthorize(ret.Code, r)
 	if err != nil {
 		w.SetError(E_INVALID_GRANT, "")
 		w.InternalError = err
 		return nil
 	}
-	if ret.AuthorizeData == nil {
+	if authorizeData == nil {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.Client == nil {
+	if client.GetId() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.Client.GetRedirectUri() == "" {
+	if client.GetRedirectUri() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.IsExpired() {
+	if authorizeData.IsExpired() {
 		w.SetError(E_INVALID_GRANT, "")
 		return nil
 	}
 
 	// code must be from the client
-	if ret.AuthorizeData.Client.GetId() != ret.Client.GetId() {
+	if authorizeData.Id != client.GetId() {
 		w.SetError(E_INVALID_GRANT, "")
 		return nil
 	}
 
 	// check redirect uri
 	if ret.RedirectUri == "" {
-		ret.RedirectUri = ret.Client.GetRedirectUri()
+		ret.RedirectUri = client.GetRedirectUri()
 	}
-	if err = ValidateUri(ret.Client.GetRedirectUri(), ret.RedirectUri); err != nil {
+	if err = ValidateUri(client.GetRedirectUri(), ret.RedirectUri); err != nil {
 		w.SetError(E_INVALID_REQUEST, "")
 		w.InternalError = err
 		return nil
 	}
-	if ret.AuthorizeData.RedirectUri != ret.RedirectUri {
+	if authorizeData.RedirectUri != ret.RedirectUri {
 		w.SetError(E_INVALID_REQUEST, "")
 		w.InternalError = errors.New("Redirect uri is different")
 		return nil
 	}
 
 	// set rest of data
-	ret.Scope = ret.AuthorizeData.Scope
-	ret.UserData = ret.AuthorizeData.UserData
+	ret.Id = client.GetId()
+	ret.AuthorizeDataCode = authorizeData.Code
+	ret.Scope = authorizeData.Scope
+	ret.UserData = authorizeData.UserData
 
 	return ret
 }
@@ -238,33 +242,43 @@ func (s *Server) handleRefreshTokenRequest(w *Response, r *http.Request) *Access
 	}
 
 	// must have a valid client
-	if ret.Client = getClient(auth, w.Storage, w, r); ret.Client == nil {
+	var client Client
+	if client = getClient(auth, w.Storage, w, r); client == nil {
 		return nil
 	}
 
 	// must be a valid refresh code
 	var err error
-	ret.AccessData, err = w.Storage.LoadRefresh(ret.Code, r)
+	var accessData *AccessData
+	accessData, err = w.Storage.LoadRefresh(ret.Code, r)
 	if err != nil {
 		w.SetError(E_INVALID_GRANT, "")
 		w.InternalError = err
 		return nil
 	}
-	if ret.AccessData == nil {
+	if accessData == nil {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client == nil {
+	if accessData.Id == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client.GetRedirectUri() == "" {
+	if accessData.RedirectUri == "" {
+		w.SetError(E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	if client.GetId() == "" {
+		w.SetError(E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	if client.GetRedirectUri() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
 
 	// client must be the same as the previous token
-	if ret.AccessData.Client.GetId() != ret.Client.GetId() {
+	if accessData.Id != client.GetId() {
 		w.SetError(E_INVALID_CLIENT, "")
 		w.InternalError = errors.New("Client id must be the same from previous token")
 		return nil
@@ -272,10 +286,11 @@ func (s *Server) handleRefreshTokenRequest(w *Response, r *http.Request) *Access
 	}
 
 	// set rest of data
-	ret.RedirectUri = ret.AccessData.RedirectUri
-	ret.UserData = ret.AccessData.UserData
+	ret.Id = client.GetId()
+	ret.RedirectUri = accessData.RedirectUri
+	ret.UserData = accessData.UserData
 	if ret.Scope == "" {
-		ret.Scope = ret.AccessData.Scope
+		ret.Scope = accessData.Scope
 	}
 
 	return ret
@@ -305,12 +320,19 @@ func (s *Server) handlePasswordRequest(w *Response, r *http.Request) *AccessRequ
 	}
 
 	// must have a valid client
-	if ret.Client = getClient(auth, w.Storage, w, r); ret.Client == nil {
+	var client Client
+	if client = getClient(auth, w.Storage, w, r); client == nil {
 		return nil
 	}
 
+	if client.GetId() == "" {
+		w.SetError(E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	ret.Id = client.GetId()
+
 	// set redirect uri
-	ret.RedirectUri = ret.Client.GetRedirectUri()
+	ret.RedirectUri = client.GetRedirectUri()
 
 	return ret
 }
@@ -331,12 +353,19 @@ func (s *Server) handleClientCredentialsRequest(w *Response, r *http.Request) *A
 	}
 
 	// must have a valid client
-	if ret.Client = getClient(auth, w.Storage, w, r); ret.Client == nil {
+	var client Client
+	if client = getClient(auth, w.Storage, w, r); client == nil {
 		return nil
 	}
 
+	if client.GetId() == "" {
+		w.SetError(E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	ret.Id = client.GetId()
+
 	// set redirect uri
-	ret.RedirectUri = ret.Client.GetRedirectUri()
+	ret.RedirectUri = client.GetRedirectUri()
 
 	return ret
 }
@@ -365,12 +394,19 @@ func (s *Server) handleAssertionRequest(w *Response, r *http.Request) *AccessReq
 	}
 
 	// must have a valid client
-	if ret.Client = getClient(auth, w.Storage, w, r); ret.Client == nil {
+	var client Client
+	if client = getClient(auth, w.Storage, w, r); client == nil {
 		return nil
 	}
 
+	if client.GetId() == "" {
+		w.SetError(E_UNAUTHORIZED_CLIENT, "")
+		return nil
+	}
+	ret.Id = client.GetId()
+
 	// set redirect uri
-	ret.RedirectUri = ret.Client.GetRedirectUri()
+	ret.RedirectUri = client.GetRedirectUri()
 
 	return ret
 }
@@ -388,9 +424,10 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 	if ar.Authorized {
 		// generate access token
 		ret := &AccessData{
-			Client:        ar.Client,
-			AuthorizeData: ar.AuthorizeData,
-			AccessData:    ar.AccessData,
+			Id:            ar.Id,
+			AuthorizeDataCode: ar.AuthorizeDataCode,
+			PreviousAccessToken:    ar.PreviousAccessToken,
+			PreviousRefreshToken:    ar.PreviousRefreshToken,
 			RedirectUri:   redirectUri,
 			CreatedAt:     time.Now(),
 			ExpiresIn:     ar.Expiration,
@@ -416,16 +453,16 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 		}
 
 		// remove authorization token
-		if ret.AuthorizeData != nil {
-			w.Storage.RemoveAuthorize(ret.AuthorizeData.Code, r)
+		if ret.AuthorizeDataCode != "" {
+			w.Storage.RemoveAuthorize(ret.AuthorizeDataCode, r)
 		}
 
 		// remove previous access token
-		if ret.AccessData != nil {
-			if ret.AccessData.RefreshToken != "" {
-				w.Storage.RemoveRefresh(ret.AccessData.RefreshToken, r)
-			}
-			w.Storage.RemoveAccess(ret.AccessData.AccessToken, r)
+		if ret.PreviousRefreshToken != "" {
+			w.Storage.RemoveRefresh(ret.PreviousRefreshToken, r)
+		}
+		if ret.PreviousAccessToken != "" {
+			w.Storage.RemoveAccess(ret.PreviousAccessToken, r)
 		}
 
 		// output data

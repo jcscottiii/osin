@@ -35,11 +35,11 @@ func (s *Server) HandleInfoRequest(w *Response, r *http.Request) *InfoRequest {
 		w.InternalError = err
 		return nil
 	}
-	if ret.AccessData.Client == nil {
+	if ret.AccessData.Id == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client.GetRedirectUri() == "" {
+	if ret.AccessData.RedirectUri == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
@@ -59,7 +59,7 @@ func (s *Server) FinishInfoRequest(w *Response, r *http.Request, ir *InfoRequest
 	}
 
 	// output data
-	w.Output["client_id"] = ir.AccessData.Client.GetId()
+	w.Output["client_id"] = ir.AccessData.Id
 	w.Output["access_token"] = ir.AccessData.AccessToken
 	w.Output["token_type"] = s.Config.TokenType
 	w.Output["expires_in"] = ir.AccessData.CreatedAt.Add(time.Duration(ir.AccessData.ExpiresIn)*time.Second).Sub(time.Now()) / time.Second
