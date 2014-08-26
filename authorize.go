@@ -28,9 +28,6 @@ type AuthorizeRequest struct {
 	// Token expiration in seconds. Change if different from default.
 	// If type = TOKEN, this expiration will be for the ACCESS token.
 	Expiration int32
-
-	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
 }
 
 // Authorization data
@@ -55,9 +52,6 @@ type AuthorizeData struct {
 
 	// Date created
 	CreatedAt time.Time
-
-	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
 }
 
 // IsExpired is true if authorization expired
@@ -224,7 +218,6 @@ func (s *Server) FinishAuthorizeRequest(w *Response, r *http.Request, ar *Author
 				GenerateRefresh: false, // per the RFC, should NOT generate a refresh token in this case
 				Authorized:      true,
 				Expiration:      ar.Expiration,
-				UserData:        ar.UserData,
 			}
 
 			s.FinishAccessRequest(w, r, ret)
@@ -237,7 +230,6 @@ func (s *Server) FinishAuthorizeRequest(w *Response, r *http.Request, ar *Author
 				RedirectUri: ar.RedirectUri,
 				State:       ar.State,
 				Scope:       ar.Scope,
-				UserData:    ar.UserData,
 			}
 
 			// generate token code

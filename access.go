@@ -40,9 +40,6 @@ type AccessRequest struct {
 
 	// Set if a refresh token should be generated
 	GenerateRefresh bool
-
-	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
 }
 
 // AccessData represents an access grant (tokens, expiration, client, etc)
@@ -73,9 +70,6 @@ type AccessData struct {
 
 	// Date created
 	CreatedAt time.Time
-
-	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
 }
 
 // IsExpired returns true if access expired
@@ -214,7 +208,6 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 	ret.Id = client.GetId()
 	ret.AuthorizeDataCode = authorizeData.Code
 	ret.Scope = authorizeData.Scope
-	ret.UserData = authorizeData.UserData
 
 	return ret
 }
@@ -288,7 +281,6 @@ func (s *Server) handleRefreshTokenRequest(w *Response, r *http.Request) *Access
 	// set rest of data
 	ret.Id = client.GetId()
 	ret.RedirectUri = accessData.RedirectUri
-	ret.UserData = accessData.UserData
 	if ret.Scope == "" {
 		ret.Scope = accessData.Scope
 	}
@@ -431,7 +423,6 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 			RedirectUri:   redirectUri,
 			CreatedAt:     time.Now(),
 			ExpiresIn:     ar.Expiration,
-			UserData:      ar.UserData,
 			Scope:         ar.Scope,
 		}
 
